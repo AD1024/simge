@@ -4,6 +4,8 @@ use std::{
 };
 
 use egg::Id;
+use rand::seq::SliceRandom;
+use log::info;
 
 use crate::memory::{self, DRAM, SRAM};
 
@@ -88,9 +90,9 @@ impl JitSim {
             Operators::Compute(_region, _op, _dst, subops, _size) => {
                 let pin = subops.iter().map(|x| x.0).collect::<HashSet<_>>();
                 for op in subops.iter_mut() {
-                    self.run(&mut op.1, srams, dram, &HashSet::default());
+                    self.run(&mut op.1, srams, dram, &pin);
                 }
-                self.perform_op(ops, srams, dram, &pin);
+                self.perform_op(ops, srams, dram, &HashSet::default());
             }
         }
     }
@@ -107,6 +109,7 @@ impl DTR<Operators, Id, SRAM, DRAM> for JitSim {
         if sram.contains(data) {
             return;
         } else {
+            info!("Rematerialize {}", data);
             let data_size = dram.get(data);
             self.allocate_buffer(data_size, sram, dram, evict_exclude);
             sram.put(data, data_size.clone());
@@ -164,19 +167,27 @@ impl DTR<Operators, Id, SRAM, DRAM> for JitSim {
         dram: &mut DRAM,
         exclude: &HashSet<Id>,
     ) {
-        while mem.resident_size + size > mem.mem_limit {
+        while mem.resident_size + size >= mem.mem_limit {
             self.evict_single(exclude, mem, dram);
         }
     }
 
     fn evict_single(&mut self, exclude: &HashSet<Id>, mem: &mut SRAM, dram: &mut DRAM) {
         let mut evict = None;
-        for (id, _) in mem.residence.iter() {
-            if !exclude.contains(id) {
-                evict = Some(id.clone());
+        // for id in mem.residence.iter().map(|x| x.0).filter(|&x| !exclude.contains(x)) {
+        //     if !exclude.contains(id) {
+        //         evict = Some(id.clone());
+        //     }
+        // }
+        let allowed = mem.residence.iter().map(|x| x.0).filter(|&&x| !exclude.contains(&x)).cloned().collect::<Vec<_>>();
+        if allowed.len() > 0 {
+            let x = allowed.choose(&mut rand::thread_rng());
+            if let Some(x) = x {
+                evict = Some(x);
             }
         }
         if let Some(ev) = evict {
+            info!("Evict: {}", ev);
             mem.store(&ev, true, dram);
         } else {
             panic!("Thrashes here...")
@@ -201,14 +212,15 @@ impl Instruction<Id, memory::SRAM, memory::DRAM> for Operators {
         match self {
             Self::Compute(region, _, output_id, ids, size) => {
                 let _op = ids[0].0;
+                info!("Current Op: Compute {} {:?}", region, ids.iter().map(|x| x.0).collect::<Vec<_>>());
                 // TODO: could do interpreter here but not necessary
                 // we are only generating schedule a la DTR
                 if *region == String::from("host") {
-                    assert!(ids[1..].iter().all(|x| dram.contains(&x.0)));
+                    assert!(ids.iter().all(|x| dram.contains(&x.0)));
                     dram.put(output_id, size.clone());
                 } else {
                     if let Some(mem) = mem {
-                        assert!(ids[1..].iter().all(|x| mem.contains(&x.0)));
+                        assert!(ids.iter().all(|x| mem.contains(&x.0)));
                         assert!(mem.mem_limit > mem.resident_size + size);
                         mem.put(output_id, size.clone());
                     } else {
@@ -217,6 +229,7 @@ impl Instruction<Id, memory::SRAM, memory::DRAM> for Operators {
                 }
             }
             Self::Load(region, (data, _op), size) => {
+                info!("Current Op: Load {} {:?}", region, data);
                 if *region == String::from("host") {
                     dram.put(data, size.clone());
                 } else {
@@ -228,7 +241,8 @@ impl Instruction<Id, memory::SRAM, memory::DRAM> for Operators {
                     mem.put(data, size.clone());
                 }
             }
-            Self::Store(_, evict, (data, _op), _) => {
+            Self::Store(region, evict, (data, _op), _) => {
+                info!("Current Op: Store {} {:?} evict: {}", region, data, evict);
                 assert!(mem.is_some());
                 let mem = mem.unwrap();
                 assert!(mem.contains(data));

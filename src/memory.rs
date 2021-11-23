@@ -27,6 +27,7 @@ impl DRAM {
 impl sim::Memory<Id, DRAM> for SRAM {
     fn put(&mut self, id: &Id, size: usize) -> bool {
         if size + self.resident_size < self.mem_limit {
+            self.resident_size += size;
             self.residence.insert(id.clone(), size);
             true
         } else {
