@@ -63,12 +63,10 @@ pub enum Operators {
     NoOp,
 }
 
-struct JitSim {
-    output_size: HashMap<Id, usize>,
-}
+pub struct JitSim;
 
 impl JitSim {
-    fn run(&mut self, ops: &mut Operators, srams: &mut HashMap<String, SRAM>, dram: &mut DRAM, pin: &HashSet<Id>) {
+    pub fn run(&mut self, ops: &mut Operators, srams: &mut HashMap<String, SRAM>, dram: &mut DRAM, pin: &HashSet<Id>) {
         match ops {
             Operators::NoOp => {},
             Operators::Load(region, meta_data, size) => {
@@ -109,7 +107,7 @@ impl DTR<Operators, Id, SRAM, DRAM> for JitSim {
         if sram.contains(data) {
             return;
         } else {
-            let data_size = self.output_size.get(data).unwrap_or(&1).clone();
+            let data_size = dram.get(data);
             self.allocate_buffer(data_size, sram, dram, evict_exclude);
             sram.put(data, data_size.clone());
         }

@@ -16,6 +16,14 @@ pub struct DRAM {
     pub residence: BTreeMap<Id, usize>,
 }
 
+impl DRAM {
+    pub fn new() -> Self {
+        Self {
+            residence: BTreeMap::new(),
+        }
+    }
+}
+
 impl sim::Memory<Id, DRAM> for SRAM {
     fn put(&mut self, id: &Id, size: usize) -> bool {
         if size + self.resident_size < self.mem_limit {
@@ -87,7 +95,7 @@ impl sim::Memory<Id, DRAM> for DRAM {
 }
 
 impl SRAM {
-    fn new(sram_size: usize) -> Self {
+    pub fn new(sram_size: usize) -> Self {
         Self {
             residence: BTreeMap::default(),
             evict: HashSet::default(),
