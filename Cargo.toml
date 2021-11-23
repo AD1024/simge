@@ -1,0 +1,21 @@
+[package]
+name = "simge"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+
+[dependencies.glenside]
+path = "../glenside"
+
+[dependencies.egg]
+# rev = "39415f19acdacd6dde62f40cb2bb08f8669acc85"
+git = "https://github.com/AD1024/egg"
+branch = "550-unicall"
+features = ["serde-json"]
+
+[dependencies.ndarray]
+version = "0.13.0"
+features = ["approx"]
