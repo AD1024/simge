@@ -1,7 +1,4 @@
-use std::{
-    borrow::Borrow,
-    collections::{HashMap, HashSet},
-};
+use std::collections::HashMap;
 
 use egg::{EGraph, Id, RecExpr};
 use glenside::language::{Language, MyAnalysis, MyAnalysisData};

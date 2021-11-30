@@ -8,7 +8,7 @@ use std::{
 use egg::Id;
 use log::info;
 
-use crate::{heuristics, memory::{DRAM, SRAM}};
+use crate::memory::{DRAM, SRAM};
 
 pub trait Simulator<I, D, TM, HM>
 where
