@@ -27,12 +27,30 @@ impl DRAM {
 impl sim::Memory<Id, DRAM> for SRAM {
     fn put(&mut self, id: &Id, size: usize) -> bool {
         if size + self.resident_size < self.mem_limit {
+            assert!(!self.residence.contains_key(id));
             self.resident_size += size;
+            self.trip_count += 1;
             self.residence.insert(id.clone(), size);
             true
         } else {
             false
         }
+    }
+
+    fn to_vec(&self) -> Vec<&Id> {
+        self.residence.iter().map(|pi| pi.0).collect()
+    }
+
+    fn size_available(&self) -> usize {
+        self.mem_limit - self.resident_size
+    }
+
+    fn size_allocated(&self) -> usize {
+        self.resident_size
+    }
+
+    fn size_total(&self) -> usize {
+        self.mem_limit
     }
 
     fn get(&self, id: &Id) -> usize {
@@ -69,6 +87,10 @@ impl sim::Memory<Id, DRAM> for SRAM {
 }
 
 impl sim::Memory<Id, DRAM> for DRAM {
+    fn to_vec(&self) -> Vec<&Id> {
+        self.residence.iter().map(|pi| pi.0).collect()
+    }
+
     fn put(&mut self, data: &Id, size: usize) -> bool {
         self.residence.insert(data.clone(), size);
         return true;
@@ -80,6 +102,19 @@ impl sim::Memory<Id, DRAM> for DRAM {
         } else {
             panic!("No resident has id {} in DRAM", data)
         }
+    }
+
+    fn size_allocated(&self) -> usize {
+        0
+    }
+
+    fn size_total(&self) -> usize {
+        usize::MAX
+    }
+
+    fn size_available(&self) -> usize {
+        // assumption: Host memory has no limit
+        usize::MAX
     }
 
     fn store(&mut self, _: &Id, _: bool, _: &mut DRAM) {
