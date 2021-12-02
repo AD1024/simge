@@ -26,12 +26,17 @@ pub fn compile_instruction(
                 let mut mem_id = vec![];
                 for children_id in ids[1..].iter() {
                     if let Some((op, id)) =
-                        compile_instruction(children_id, expr, memo, egraph, id_translation) {
+                        compile_instruction(children_id, expr, memo, egraph, id_translation)
+                    {
                         insn.push(op);
                         mem_id.push(id);
                     }
                 }
-                assert!(insn.len() > 0, "Empty children at accelerator call {:?}", egraph[ids[0]].nodes);
+                assert!(
+                    insn.len() > 0,
+                    "Empty children at accelerator call {:?}",
+                    egraph[ids[0]].nodes
+                );
                 let ids = ids
                     .to_vec()
                     .iter()
@@ -62,7 +67,8 @@ pub fn compile_instruction(
             }
         }
         Language::AcceleratorLoad([region, data]) => {
-            let (load_cmd, src_id) = compile_instruction(&data, expr, memo, egraph, id_translation).unwrap();
+            let (load_cmd, src_id) =
+                compile_instruction(&data, expr, memo, egraph, id_translation).unwrap();
             let region = id_translation.get(&region).unwrap().clone();
             let region = match &egraph[region].data {
                 MyAnalysisData::AcceleratorFunc(func) => func.accelerator.clone().into(),
@@ -118,12 +124,18 @@ pub fn compile_instruction(
         Language::AcceleratorCall(ids) => {
             let mut mem_id = vec![];
             for children_id in ids[1..ids.len() - 1].iter() {
-                if let Some((op, id)) = compile_instruction(children_id, expr, memo, egraph, id_translation) {
+                if let Some((op, id)) =
+                    compile_instruction(children_id, expr, memo, egraph, id_translation)
+                {
                     insn.push(op);
                     mem_id.push(id);
                 }
             }
-            assert!(insn.len() > 0, "Empty children at accelerator call {:?}", egraph[ids[0]].nodes);
+            assert!(
+                insn.len() > 0,
+                "Empty children at accelerator call {:?}",
+                egraph[ids[0]].nodes
+            );
             let ids = ids
                 .to_vec()
                 .iter()
@@ -151,28 +163,41 @@ pub fn compile_instruction(
             ));
         }
         Language::Compute([op, x]) => {
-            let (child_op, id) = compile_instruction(&x, expr, memo, egraph, id_translation).unwrap();
+            let (child_op, id) =
+                compile_instruction(&x, expr, memo, egraph, id_translation).unwrap();
             memo.insert(current_id.clone(), current_id.clone());
             return Some((
                 Operators::Compute(
-                    "host".into(), op, current_id.clone(), vec![(id, child_op)], 1
+                    "host".into(),
+                    op,
+                    current_id.clone(),
+                    vec![(id, child_op)],
+                    1,
                 ),
                 current_id.clone(),
-            ))
+            ));
         }
         Language::AccessPair([car, cdr]) => {
             let mut child_insn = vec![];
-            if let Some((car_op, car_id)) = compile_instruction(&car, expr, memo, egraph, id_translation) {
+            if let Some((car_op, car_id)) =
+                compile_instruction(&car, expr, memo, egraph, id_translation)
+            {
                 child_insn.push((car_id, car_op));
             }
-            if let Some((cdr_op, cdr_id)) = compile_instruction(&cdr, expr, memo, egraph, id_translation) {
+            if let Some((cdr_op, cdr_id)) =
+                compile_instruction(&cdr, expr, memo, egraph, id_translation)
+            {
                 child_insn.push((cdr_id, cdr_op));
             }
             memo.insert(current_id.clone(), current_id.clone());
             if child_insn.len() > 0 {
                 return Some((
                     Operators::Compute(
-                        "host".into(), current_id.clone(), current_id.clone(), child_insn, 1
+                        "host".into(),
+                        current_id.clone(),
+                        current_id.clone(),
+                        child_insn,
+                        1,
                     ),
                     current_id.clone(),
                 ));
@@ -185,8 +210,7 @@ pub fn compile_instruction(
         | Language::Access([x, _]) => {
             return compile_instruction(&x, expr, memo, egraph, id_translation);
         }
-        Language::AccessLiteral(_)
-        | Language::AccessTensor(_) => {
+        Language::AccessLiteral(_) | Language::AccessTensor(_) => {
             // let output_size = match &egraph[current_id.clone()].data {
             //     MyAnalysisData::AccessPattern(access) => access.as_vec().iter().product(),
             //     MyAnalysisData::Shape(shape) => shape.shape.slice().to_vec().iter().product(),
@@ -204,7 +228,16 @@ pub fn compile_instruction(
         }
         Language::AccessFlatten(x) => {
             let op = compile_instruction(&x, expr, memo, egraph, id_translation).unwrap();
-            return Some((Operators::Compute("host".into(), current_id.clone(), current_id.clone(), vec![(op.1, op.0)], 1), current_id.clone()));
+            return Some((
+                Operators::Compute(
+                    "host".into(),
+                    current_id.clone(),
+                    current_id.clone(),
+                    vec![(op.1, op.0)],
+                    1,
+                ),
+                current_id.clone(),
+            ));
         }
         Language::RelayActivationLayout(_)
         | Language::Usize(_)

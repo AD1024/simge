@@ -2,7 +2,6 @@ use std::{
     borrow::BorrowMut,
     collections::{HashMap, HashSet},
     hash::Hash,
-    marker::PhantomData,
 };
 
 use egg::Id;
@@ -10,12 +9,10 @@ use log::info;
 
 use crate::memory::{DRAM, SRAM};
 
-pub trait Simulator<I, D, TM, HM>
+pub trait Simulator<I, D>
 where
     D: std::fmt::Debug + Hash + Eq + PartialEq + Clone,
     I: Instruction<D>,
-    HM: Memory<D, HM>,
-    TM: Memory<D, HM>,
 {
     fn initialize(&mut self);
     fn run_insn(&mut self, insns: I) -> usize;
@@ -25,8 +22,8 @@ pub trait DTR<I, D, TM, HM>
 where
     D: std::fmt::Debug + Hash + Eq + PartialEq + Clone,
     I: Instruction<D>,
-    HM: Memory<D, HM>,
-    TM: Memory<D, HM>,
+    HM: Memory<D>,
+    TM: Memory<D>,
 {
     fn rematerialize(&mut self, data: &D, sram: &mut TM, dram: &mut HM, exclude: &HashSet<D>);
     fn perform_op(
@@ -45,15 +42,14 @@ pub trait Heuristic<D>
 where
     D: std::fmt::Debug + Hash + Eq + PartialEq + Clone,
 {
-    fn choose<TM: Memory<D, HM>, HM: Memory<D, HM>>(&mut self, sram: &TM, exclude: &HashSet<D>) -> Option<D>;
+    fn choose<TM: Memory<D>>(&mut self, sram: &TM, exclude: &HashSet<D>) -> Option<D>;
     fn touch(&mut self, data: &D, size: usize);
     fn evict(&mut self, data: &D);
 }
 
-pub trait Memory<D, HM>
+pub trait Memory<D>
 where
     D: std::fmt::Debug + Hash + Eq + PartialEq + Clone,
-    HM: Memory<D, HM>,
 {
     fn put(&mut self, data: &D, size: usize, from_self: bool) -> bool;
     fn get(&self, data: &D) -> usize;
@@ -63,7 +59,7 @@ where
     fn size_total(&self) -> usize;
     fn size_of(&self, data: &D) -> Result<usize, ()>;
     fn to_vec(&self) -> Vec<&D>;
-    fn store(&mut self, data: &D, _evict: bool, other: &mut HM) {
+    fn store<HM: Memory<D>>(&mut self, data: &D, _evict: bool, other: &mut HM) {
         other.put(data, self.get(data), false);
     }
     fn deallocate(&mut self, data: &D);
@@ -93,38 +89,28 @@ where
     NoOp,
 }
 
-pub struct JitSim<H, D, TM, HM>
+pub struct JitSim<H, D>
 where
     D: std::fmt::Debug + Hash + Eq + PartialEq + Clone,
-    TM: Memory<D, HM>,
-    HM: Memory<D, HM>,
     H: Heuristic<D>,
 {
     pub(crate) heuristic: H,
     pub(crate) trace: Vec<Operators<D>>,
-    __phantom_d: PhantomData<D>,
-    __phantom_tm: PhantomData<TM>,
-    __phantom_hm: PhantomData<HM>,
 }
 
-impl<H, D, TM, HM> JitSim<H, D, TM, HM>
+impl<H, D> JitSim<H, D>
 where
     D: std::fmt::Debug + Hash + Eq + PartialEq + Clone,
-    TM: Memory<D, HM>,
-    HM: Memory<D, HM>,
     H: Heuristic<D>,
 {
     pub fn new(heuristic: H) -> Self {
         Self {
             heuristic,
             trace: Vec::default(),
-            __phantom_d: PhantomData,
-            __phantom_hm: PhantomData,
-            __phantom_tm: PhantomData,
         }
     }
 
-    pub fn run(
+    pub fn run<TM: Memory<D>, HM: Memory<D>>(
         &mut self,
         ops: &mut Operators<D>,
         srams: &mut HashMap<String, TM>,
@@ -152,11 +138,11 @@ where
     }
 }
 
-impl<H, D, TM, HM> DTR<Operators<D>, D, TM, HM> for JitSim<H, D, TM, HM>
+impl<H, D, TM, HM> DTR<Operators<D>, D, TM, HM> for JitSim<H, D>
 where
     D: std::fmt::Debug + Hash + Eq + PartialEq + Clone,
-    TM: Memory<D, HM>,
-    HM: Memory<D, HM>,
+    TM: Memory<D>,
+    HM: Memory<D>,
     H: Heuristic<D>,
 {
     fn rematerialize(
@@ -268,7 +254,7 @@ where
         }
     }
 
-    fn run<TM: Memory<D, HM>, HM: Memory<D, HM>>(&self, mem: Option<&mut TM>, dram: &mut HM) {
+    fn run<TM: Memory<D>, HM: Memory<D>>(&self, mem: Option<&mut TM>, dram: &mut HM) {
         match self {
             Self::Compute(region, _, output_id, ids, size) => {
                 let _op = &ids[0].0;
@@ -349,15 +335,15 @@ where
     D: std::fmt::Debug + Hash + Eq + PartialEq + Clone,
 {
     fn insn_type(&self) -> InsnType;
-    fn run<TM: Memory<D, HM>, HM: Memory<D, HM>>(&self, mem: Option<&mut TM>, dram: &mut HM);
+    fn run<TM: Memory<D>, HM: Memory<D>>(&self, mem: Option<&mut TM>, dram: &mut HM);
     fn compile(&self) -> String;
 }
 
 pub trait InsnLogger<D, TM, HM>
 where
     D: std::fmt::Debug + Hash + Eq + PartialEq + Clone,
-    TM: Memory<D, HM>,
-    HM: Memory<D, HM>,
+    TM: Memory<D>,
+    HM: Memory<D>,
 {
     fn write_log(self, logs: &mut Vec<String>);
 }

@@ -1,5 +1,5 @@
-use crate::sim;
-use std::{collections::{BTreeMap, HashSet}};
+use crate::sim::{self, Memory};
+use std::collections::{BTreeMap, HashSet};
 
 use egg::Id;
 
@@ -24,7 +24,7 @@ impl DRAM {
     }
 }
 
-impl sim::Memory<Id, DRAM> for SRAM {
+impl sim::Memory<Id> for SRAM {
     fn put(&mut self, id: &Id, size: usize, from_self: bool) -> bool {
         if size + self.resident_size <= self.mem_limit {
             assert!(!self.residence.contains_key(id));
@@ -35,7 +35,12 @@ impl sim::Memory<Id, DRAM> for SRAM {
             self.residence.insert(id.clone(), size);
             true
         } else {
-            panic!("OOM on SRAM: trying to allocate {}; usage: {} / {}", size, self.size_allocated(), self.size_total());
+            panic!(
+                "OOM on SRAM: trying to allocate {}; usage: {} / {}",
+                size,
+                self.size_allocated(),
+                self.size_total()
+            );
         }
     }
 
@@ -71,7 +76,7 @@ impl sim::Memory<Id, DRAM> for SRAM {
         }
     }
 
-    fn store(&mut self, id: &Id, evict: bool, dram: &mut DRAM) {
+    fn store<DRAM: Memory<Id>>(&mut self, id: &Id, evict: bool, dram: &mut DRAM) {
         if self.residence.contains_key(id) {
             let size = self.residence.get(id).unwrap().clone();
             if evict {
@@ -103,7 +108,7 @@ impl sim::Memory<Id, DRAM> for SRAM {
     }
 }
 
-impl sim::Memory<Id, DRAM> for DRAM {
+impl sim::Memory<Id> for DRAM {
     fn to_vec(&self) -> Vec<&Id> {
         self.residence.iter().map(|pi| pi.0).collect()
     }
@@ -142,7 +147,7 @@ impl sim::Memory<Id, DRAM> for DRAM {
         usize::MAX
     }
 
-    fn store(&mut self, _: &Id, _: bool, _: &mut DRAM) {
+    fn store<DRAM: Memory<Id>>(&mut self, _: &Id, _: bool, _: &mut DRAM) {
         return;
     }
 

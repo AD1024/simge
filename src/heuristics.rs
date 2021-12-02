@@ -1,6 +1,6 @@
 use crate::sim::{Heuristic, Memory};
 use rand::seq::SliceRandom;
-use std::{collections::HashSet, collections::BinaryHeap, hash::Hash, time::Instant};
+use std::{collections::BinaryHeap, collections::HashSet, hash::Hash, time::Instant};
 
 pub struct RandomEviction;
 
@@ -21,7 +21,10 @@ impl<D: Clone> PartialEq for DataPair<D> {
 
 impl<D: Clone> PartialOrd for DataPair<D> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.0.elapsed().as_nanos().partial_cmp(&other.0.elapsed().as_nanos())
+        self.0
+            .elapsed()
+            .as_nanos()
+            .partial_cmp(&other.0.elapsed().as_nanos())
     }
 }
 
@@ -44,10 +47,9 @@ impl<D> Heuristic<D> for RandomEviction
 where
     D: std::fmt::Debug + Hash + Eq + PartialEq + Clone,
 {
-    fn choose<TM, HM>(&mut self, sram: &TM, exclude: &HashSet<D>) -> Option<D>
+    fn choose<TM>(&mut self, sram: &TM, exclude: &HashSet<D>) -> Option<D>
     where
-        TM: Memory<D, HM>,
-        HM: Memory<D, HM>,
+        TM: Memory<D>,
     {
         let allowed = sram
             .to_vec()
@@ -70,7 +72,9 @@ where
 
 impl<D: Clone> LRU<D> {
     pub fn new() -> Self {
-        LRU { member: BinaryHeap::default() }
+        LRU {
+            member: BinaryHeap::default(),
+        }
     }
 }
 
@@ -78,12 +82,12 @@ impl<D> Heuristic<D> for LRU<D>
 where
     D: std::fmt::Debug + Hash + Eq + PartialEq + Clone,
 {
-    fn choose<TM, HM> (&mut self, _sram: &TM, exclude: &HashSet<D>) -> Option<D>
+    fn choose<TM>(&mut self, _sram: &TM, exclude: &HashSet<D>) -> Option<D>
     where
-        TM: Memory<D, HM>,
-        HM: Memory<D, HM>,
+        TM: Memory<D>,
     {
-        let x = self.member
+        let x = self
+            .member
             .iter()
             .filter(|&x| !exclude.contains(&x.1))
             .collect::<BinaryHeap<_>>();
@@ -97,7 +101,8 @@ where
     }
 
     fn evict(&mut self, data: &D) {
-        self.member = self.member
+        self.member = self
+            .member
             .iter()
             .filter(|&x| x.1 != data.clone())
             .cloned()
