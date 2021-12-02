@@ -1,5 +1,5 @@
 use crate::sim;
-use std::collections::{BTreeMap, HashSet};
+use std::{collections::{BTreeMap, HashSet}};
 
 use egg::Id;
 
@@ -25,15 +25,17 @@ impl DRAM {
 }
 
 impl sim::Memory<Id, DRAM> for SRAM {
-    fn put(&mut self, id: &Id, size: usize) -> bool {
-        if size + self.resident_size < self.mem_limit {
+    fn put(&mut self, id: &Id, size: usize, from_self: bool) -> bool {
+        if size + self.resident_size <= self.mem_limit {
             assert!(!self.residence.contains_key(id));
             self.resident_size += size;
-            self.trip_count += 1;
+            if !from_self {
+                self.trip_count += 1;
+            }
             self.residence.insert(id.clone(), size);
             true
         } else {
-            false
+            panic!("OOM on SRAM: trying to allocate {}; usage: {} / {}", size, self.size_allocated(), self.size_total());
         }
     }
 
@@ -53,6 +55,14 @@ impl sim::Memory<Id, DRAM> for SRAM {
         self.mem_limit
     }
 
+    fn size_of(&self, data: &Id) -> Result<usize, ()> {
+        if let Some(x) = self.residence.get(data) {
+            Ok(x.clone())
+        } else {
+            Err(())
+        }
+    }
+
     fn get(&self, id: &Id) -> usize {
         if let Some(size) = self.residence.get(id) {
             size.clone()
@@ -70,7 +80,7 @@ impl sim::Memory<Id, DRAM> for SRAM {
                 self.resident_size -= size;
             }
             self.trip_count += 1;
-            dram.put(id, size);
+            dram.put(id, size, false);
         } else {
             panic!("Evicting non-residence: {}", id);
         }
@@ -79,6 +89,13 @@ impl sim::Memory<Id, DRAM> for SRAM {
     fn reset(&mut self) {
         self.residence.clear();
         self.evict.clear();
+        self.resident_size = 0;
+    }
+
+    fn deallocate(&mut self, data: &Id) {
+        assert!(self.residence.contains_key(data));
+        self.resident_size -= self.residence.get(data).unwrap();
+        self.residence.remove(data);
     }
 
     fn contains(&self, data: &Id) -> bool {
@@ -91,7 +108,7 @@ impl sim::Memory<Id, DRAM> for DRAM {
         self.residence.iter().map(|pi| pi.0).collect()
     }
 
-    fn put(&mut self, data: &Id, size: usize) -> bool {
+    fn put(&mut self, data: &Id, size: usize, _from_self: bool) -> bool {
         self.residence.insert(data.clone(), size);
         return true;
     }
@@ -101,6 +118,14 @@ impl sim::Memory<Id, DRAM> for DRAM {
             size.clone()
         } else {
             panic!("No resident has id {} in DRAM", data)
+        }
+    }
+
+    fn size_of(&self, data: &Id) -> Result<usize, ()> {
+        if let Some(x) = self.residence.get(data) {
+            Ok(x.clone())
+        } else {
+            Err(())
         }
     }
 
@@ -123,6 +148,10 @@ impl sim::Memory<Id, DRAM> for DRAM {
 
     fn reset(&mut self) {
         self.residence.clear();
+    }
+
+    fn deallocate(&mut self, data: &Id) {
+        self.residence.remove(data);
     }
 
     fn contains(&self, data: &Id) -> bool {

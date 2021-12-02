@@ -41,14 +41,13 @@ where
     fn deallocate(&mut self, data: &D, mem: &mut TM, dram: &mut HM);
 }
 
-pub trait Heuristic<D, TM, HM>
+pub trait Heuristic<D>
 where
     D: std::fmt::Debug + Hash + Eq + PartialEq + Clone,
-    TM: Memory<D, HM>,
-    HM: Memory<D, HM>,
 {
-    fn choose(&mut self, sram: &TM, exclude: &HashSet<D>) -> Option<D>;
-    fn touch(&mut self, data: &D);
+    fn choose<TM: Memory<D, HM>, HM: Memory<D, HM>>(&mut self, sram: &TM, exclude: &HashSet<D>) -> Option<D>;
+    fn touch(&mut self, data: &D, size: usize);
+    fn evict(&mut self, data: &D);
 }
 
 pub trait Memory<D, HM>
@@ -56,16 +55,18 @@ where
     D: std::fmt::Debug + Hash + Eq + PartialEq + Clone,
     HM: Memory<D, HM>,
 {
-    fn put(&mut self, data: &D, size: usize) -> bool;
+    fn put(&mut self, data: &D, size: usize, from_self: bool) -> bool;
     fn get(&self, data: &D) -> usize;
     fn contains(&self, data: &D) -> bool;
     fn size_available(&self) -> usize;
     fn size_allocated(&self) -> usize;
     fn size_total(&self) -> usize;
+    fn size_of(&self, data: &D) -> Result<usize, ()>;
     fn to_vec(&self) -> Vec<&D>;
     fn store(&mut self, data: &D, _evict: bool, other: &mut HM) {
-        other.put(data, self.get(data));
+        other.put(data, self.get(data), false);
     }
+    fn deallocate(&mut self, data: &D);
     fn reset(&mut self);
 }
 
@@ -97,9 +98,10 @@ where
     D: std::fmt::Debug + Hash + Eq + PartialEq + Clone,
     TM: Memory<D, HM>,
     HM: Memory<D, HM>,
-    H: Heuristic<D, TM, HM>,
+    H: Heuristic<D>,
 {
-    pub heuristic: H,
+    pub(crate) heuristic: H,
+    pub(crate) trace: Vec<Operators<D>>,
     __phantom_d: PhantomData<D>,
     __phantom_tm: PhantomData<TM>,
     __phantom_hm: PhantomData<HM>,
@@ -110,11 +112,12 @@ where
     D: std::fmt::Debug + Hash + Eq + PartialEq + Clone,
     TM: Memory<D, HM>,
     HM: Memory<D, HM>,
-    H: Heuristic<D, TM, HM>,
+    H: Heuristic<D>,
 {
     pub fn new(heuristic: H) -> Self {
         Self {
             heuristic,
+            trace: Vec::default(),
             __phantom_d: PhantomData,
             __phantom_hm: PhantomData,
             __phantom_tm: PhantomData,
@@ -154,7 +157,7 @@ where
     D: std::fmt::Debug + Hash + Eq + PartialEq + Clone,
     TM: Memory<D, HM>,
     HM: Memory<D, HM>,
-    H: Heuristic<D, TM, HM>,
+    H: Heuristic<D>,
 {
     fn rematerialize(
         &mut self,
@@ -163,15 +166,14 @@ where
         dram: &mut HM,
         evict_exclude: &HashSet<D>,
     ) {
-        self.heuristic.touch(data);
-        if sram.contains(data) {
-            return;
-        } else {
+        if !sram.contains(data) {
             info!("Rematerialize {:?}", data);
             let data_size = dram.get(data);
             self.allocate_buffer(data_size, sram, dram, evict_exclude);
-            sram.put(data, data_size.clone());
+            sram.put(data, data_size.clone(), false);
+            // self.trace.push(Operators::Load())
         }
+        self.heuristic.touch(data, sram.size_of(data).unwrap());
     }
 
     fn perform_op(
@@ -182,7 +184,7 @@ where
         exclude: &HashSet<D>,
     ) {
         match op {
-            Operators::Compute(region, _, _, ids, size) => {
+            Operators::Compute(region, _, dst, ids, size) => {
                 if *region == String::from("host") {
                     op.run(None as Option<&mut TM>, dram);
                 } else {
@@ -192,29 +194,36 @@ where
                         if !mem.contains(&arg) {
                             self.rematerialize(&arg, mem, dram, &evict_lock);
                         } else {
-                            self.heuristic.touch(&arg);
+                            self.heuristic.touch(&arg, mem.size_of(&arg).unwrap());
                         }
                     }
                     self.allocate_buffer(size.clone(), mem, dram, &evict_lock);
                     op.run(Some(mem), dram);
+                    self.heuristic.touch(dst, size.clone());
                 }
             }
             Operators::Load(region, (id, _op), size) => {
                 if *region == String::from("host") {
                     op.run(None as Option<&mut TM>, dram);
                 } else {
-                    self.heuristic.touch(id);
                     let mem = srams.get_mut(region).unwrap();
-                    self.allocate_buffer(size.clone(), mem, dram, exclude);
-                    op.run(Some(mem), dram);
+                    if !mem.contains(id) {
+                        self.allocate_buffer(size.clone(), mem, dram, exclude);
+                        op.run(Some(mem), dram);
+                    }
+                    self.heuristic.touch(id, mem.size_of(id).unwrap());
                 }
             }
-            Operators::Store(region, _evict, (_data, _op), _size) => {
+            Operators::Store(region, evict, (data, _op), _size) => {
                 if *region == String::from("host") {
                     panic!("Store should not performed on host");
                 } else {
                     let mem = srams.get_mut(region).unwrap();
                     op.run(Some(mem), dram);
+                    if *evict {
+                        self.heuristic.evict(data);
+                    }
+                    // mem.reset();
                 }
             }
             Operators::NoOp => {}
@@ -222,27 +231,21 @@ where
     }
 
     fn allocate_buffer(&mut self, size: usize, mem: &mut TM, dram: &mut HM, exclude: &HashSet<D>) {
-        while mem.size_allocated() + size >= mem.size_total() {
+        while mem.size_allocated() + size > mem.size_total() {
             self.evict_single(exclude, mem, dram);
         }
     }
 
     fn evict_single(&mut self, exclude: &HashSet<D>, mem: &mut TM, dram: &mut HM) {
-        // for id in mem.residence.iter().map(|x| x.0).filter(|&x| !exclude.contains(x)) {
-        //     if !exclude.contains(id) {
-        //         evict = Some(id.clone());
-        //     }
-        // }
-        // let allowed = mem.residence.iter().map(|x| x.0).filter(|&&x| !exclude.contains(&x)).cloned().collect::<Vec<_>>();
-        // if allowed.len() > 0 {
-        //     let x = allowed.choose(&mut rand::thread_rng());
-        //     if let Some(x) = x {
-        //         evict = Some(x);
-        //     }
-        // }
         if let Some(ev) = self.heuristic.choose(mem, exclude) {
-            info!("Evict: {:?}", ev);
-            mem.store(&ev, true, dram);
+            if dram.contains(&ev) {
+                info!("Deallocate: {:?}", ev);
+                mem.deallocate(&ev);
+            } else {
+                info!("Evict: {:?}", ev);
+                mem.store(&ev, true, dram);
+            }
+            self.heuristic.evict(&ev);
         } else {
             panic!("Thrashes here...")
         }
@@ -270,20 +273,21 @@ where
             Self::Compute(region, _, output_id, ids, size) => {
                 let _op = &ids[0].0;
                 info!(
-                    "Current Op: Compute {} {:?}",
+                    "Current Op: Compute {} {:?} dst: {:?}",
                     region,
-                    ids.iter().map(|x| &x.0).cloned().collect::<Vec<_>>()
+                    ids.iter().map(|x| &x.0).cloned().collect::<Vec<_>>(),
+                    output_id,
                 );
                 // TODO: could do interpreter here but not necessary
                 // we are only generating schedule a la DTR
                 if *region == String::from("host") {
                     assert!(ids.iter().all(|x| dram.contains(&x.0)));
-                    dram.put(output_id, size.clone());
+                    dram.put(output_id, size.clone(), true);
                 } else {
                     if let Some(mem) = mem {
                         assert!(ids.iter().all(|x| mem.contains(&x.0)));
-                        assert!(mem.size_total() > mem.size_allocated() + size);
-                        mem.put(output_id, size.clone());
+                        assert!(mem.size_total() >= mem.size_allocated() + size);
+                        mem.put(output_id, size.clone(), true);
                     } else {
                         panic!("No SRAM provided");
                     }
@@ -292,13 +296,13 @@ where
             Self::Load(region, (data, _op), size) => {
                 info!("Current Op: Load {} {:?}", region, data);
                 if *region == String::from("host") {
-                    dram.put(data, size.clone());
+                    dram.put(data, size.clone(), true);
                 } else {
                     assert!(dram.contains(data));
                     assert!(mem.is_some());
                     let mem = mem.unwrap();
-                    assert!(mem.size_total() > mem.size_allocated() + size);
-                    mem.put(data, size.clone());
+                    assert!(mem.size_total() >= mem.size_allocated() + size);
+                    mem.put(data, size.clone(), false);
                 }
             }
             Self::Store(region, evict, (data, _op), _) => {
@@ -307,6 +311,7 @@ where
                 let mem = mem.unwrap();
                 assert!(mem.contains(data));
                 mem.store(data, *evict, dram);
+                // mem.reset();
             }
             Self::NoOp => {}
         }
