@@ -116,7 +116,7 @@ pub fn compile_instruction(
             // } else {
             memo.insert(current_id.clone(), dst_id.clone());
             return Some((
-                Operators::Store(region, false, (dst_id.clone(), Box::new(store_cmd)), 1),
+                Operators::Store(region, true, (dst_id.clone(), Box::new(store_cmd)), 1),
                 dst_id.into(),
             ));
             // }
