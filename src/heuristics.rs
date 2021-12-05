@@ -68,6 +68,7 @@ where
 
     fn touch(&mut self, _data: &D, _size: usize) {}
     fn evict(&mut self, _data: &D) {}
+    fn reset(&mut self) {}
 }
 
 impl<D: Clone> LRU<D> {
@@ -107,5 +108,9 @@ where
             .filter(|&x| x.1 != data.clone())
             .cloned()
             .collect::<BinaryHeap<_>>();
+    }
+
+    fn reset(&mut self) {
+        self.member.clear();
     }
 }

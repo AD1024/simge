@@ -45,6 +45,7 @@ where
     fn choose<TM: Memory<D>>(&mut self, sram: &TM, exclude: &HashSet<D>) -> Option<D>;
     fn touch(&mut self, data: &D, size: usize);
     fn evict(&mut self, data: &D);
+    fn reset(&mut self);
 }
 
 pub trait Memory<D>
@@ -200,16 +201,19 @@ where
                     self.heuristic.touch(id, mem.size_of(id).unwrap());
                 }
             }
-            Operators::Store(region, evict, (data, _op), _size) => {
+            Operators::Store(region, _evict, (_data, _op), _size) => {
                 if *region == String::from("host") {
                     panic!("Store should not performed on host");
                 } else {
                     let mem = srams.get_mut(region).unwrap();
                     op.run(Some(mem), dram);
-                    if *evict {
-                        self.heuristic.evict(data);
-                    }
-                    // mem.reset();
+                    mem.to_vec().iter().for_each(|&data| {
+                        if !dram.contains(data) {
+                            dram.put(data, mem.get(data), false);
+                        }
+                    });
+                    mem.reset();
+                    self.heuristic.reset();
                 }
             }
             Operators::NoOp => {}
